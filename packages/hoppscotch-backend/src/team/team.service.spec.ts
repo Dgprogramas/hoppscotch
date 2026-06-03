@@ -8,6 +8,7 @@ import {
   TEAM_NAME_INVALID,
   TEAM_ONLY_ONE_OWNER,
   TEAM_INVALID_ID_OR_USER,
+  TEAM_MEMBER_NOT_FOUND,
 } from '../errors';
 import { mockDeep, mockReset } from 'jest-mock-extended';
 import * as O from 'fp-ts/Option';
@@ -521,6 +522,19 @@ describe('updateTeamAccessRole', () => {
         role: newRole,
       },
     );
+  });
+
+  test('should return TEAM_MEMBER_NOT_FOUND when member does not exist in the team', async () => {
+    mockPrisma.teamMember.count.mockResolvedValue(1);
+    mockPrisma.teamMember.findUnique.mockResolvedValue(null);
+
+    const result = await teamService.updateTeamAccessRole(
+      dbTeamMember.teamID,
+      'invalidUserUid',
+      TeamAccessRole.EDITOR,
+    );
+
+    expect(result).toEqualLeft(TEAM_MEMBER_NOT_FOUND);
   });
 });
 
