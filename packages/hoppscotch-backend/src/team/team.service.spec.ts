@@ -536,6 +536,26 @@ describe('updateTeamAccessRole', () => {
 
     expect(result).toEqualLeft(TEAM_MEMBER_NOT_FOUND);
   });
+
+  test('should successfully update role when ownerCount is 0', async () => {
+    const newRole = TeamAccessRole.EDITOR;
+    mockPrisma.teamMember.count.mockResolvedValue(0);
+    mockPrisma.teamMember.findUnique.mockResolvedValue({
+      ...dbTeamMember,
+      role: TeamAccessRole.OWNER,
+    });
+    mockPrisma.teamMember.update.mockResolvedValue({
+      ...dbTeamMember,
+      role: newRole,
+    });
+
+    const result = await teamService.updateTeamAccessRole(
+      dbTeamMember.teamID,
+      dbTeamMember.userUid,
+      newRole,
+    );
+    expect(result).toEqualRight({ ...teamMember, role: newRole });
+  });
 });
 
 describe('leaveTeam', () => {
