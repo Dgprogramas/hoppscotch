@@ -1401,6 +1401,41 @@ describe('moveUserCollection', () => {
       },
     );
   });
+  test('should throw USER_NOT_OWNER when user is not owner of target collection', async () => {
+      const collection = { ...rootRESTUserCollection, userUid: user.uid };
+      const targetCollection = { ...rootRESTUserCollection, id: 'target_id', userUid: 'other_user' };
+
+      userCollectionService.getUserCollection = jest.fn()
+        .mockResolvedValueOnce(E.right(collection))
+        .mockResolvedValueOnce(E.right(targetCollection));
+
+      const result = await userCollectionService.moveUserCollection(
+        collection.id,
+        targetCollection.id,
+        user.uid,
+      );
+      expect(result).toEqualLeft(USER_NOT_OWNER);
+    });
+
+    test('should move collection to root level successfully', async () => {
+      const collection = { ...rootRESTUserCollection, parentID: 'some_parent' };
+
+      userCollectionService.getUserCollection = jest.fn().mockResolvedValue(E.right(collection));
+      mockPrisma.userCollection.update.mockResolvedValue({ ...collection, parentID: null });
+
+      const result = await userCollectionService.moveUserCollection(collection.id, null, user.uid);
+      expect(result).toEqualRight(expect.objectContaining({ parentID: null }));
+    });
+
+    test('should return USER_COLL_MOVE_FAILED on prisma update failure', async () => {
+      const collection = { ...rootRESTUserCollection };
+
+      userCollectionService.getUserCollection = jest.fn().mockResolvedValue(E.right(collection));
+      mockPrisma.userCollection.update.mockRejectedValue(new Error('Prisma error'));
+
+      const result = await userCollectionService.moveUserCollection(collection.id, 'target_id', user.uid);
+      expect(result).toEqualLeft(USER_COLL_MOVE_FAILED);
+    });
 });
 
 describe('updateUserCollectionOrder', () => {
