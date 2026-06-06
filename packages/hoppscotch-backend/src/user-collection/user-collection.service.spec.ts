@@ -22,6 +22,7 @@ import { AuthUser } from 'src/types/AuthUser';
 import { ReqType } from 'src/types/RequestTypes';
 import { UserCollectionService } from './user-collection.service';
 import { UserCollection } from './user-collections.model';
+import { SortOptions } from 'src/types/SortOptions';
 
 const mockPrisma = mockDeep<PrismaService>();
 const mockPubSub = mockDeep<PubSubService>();
@@ -2536,3 +2537,259 @@ describe('importCollectionsFromJSON — collection-level script fields', () => {
     }
   });
 });
+
+ 
+describe('sortUserCollections', () => {
+  // ── helpers ────────────────────────────────────────────────────────────────
+ 
+  /** Minimal projection that sortUserCollections actually reads from the DB. */
+  const toIdOnly = (list: typeof childRESTUserCollectionList) =>
+    list.map(({ id }) => ({ id }));
+ 
+  /** Reset all mocks before each test so state doesn't leak between cases. */
+  beforeEach(() => {
+    mockReset(mockPrisma);
+  });
+ 
+  // ── TITLE_ASC ──────────────────────────────────────────────────────────────
+ 
+  test('should sort child collections by title ascending (TITLE_ASC)', async () => {
+    // The DB returns collections pre-sorted by the `orderBy` clause.
+    // sortUserCollections re-assigns orderIndex 1..N in the order returned.
+    const sortedByTitleAsc = [
+      childRESTUserCollectionList[0], // Child Collection 1
+      childRESTUserCollectionList[1], // Child Collection 2
+      childRESTUserCollectionList[2], // Child Collection 3
+      childRESTUserCollectionList[3], // Child Collection 4
+      childRESTUserCollectionList[4], // Child Collection 5
+    ];
+ 
+    mockPrisma.$transaction.mockImplementation(async (fn) => fn(mockPrisma));
+    mockPrisma.lockUserCollectionByParent.mockResolvedValue(undefined);
+    mockPrisma.userCollection.findMany.mockResolvedValueOnce(
+      toIdOnly(sortedByTitleAsc),
+    );
+    // Each collection gets an update call; mock them all as successful.
+    sortedByTitleAsc.forEach((_, i) =>
+      mockPrisma.userCollection.update.mockResolvedValueOnce({
+        ...sortedByTitleAsc[i],
+        orderIndex: i + 1,
+      }),
+    );
+ 
+    const result = await userCollectionService.sortUserCollections(
+      user.uid,
+      rootRESTUserCollectionList[0].id, // parentID
+      SortOptions.TITLE_ASC,
+    );
+ 
+    expect(result).toEqualRight(true);
+ 
+    // Verify findMany was called with the correct orderBy
+    expect(mockPrisma.userCollection.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orderBy: { title: 'asc' },
+      }),
+    );
+ 
+    // Verify each update received the correct sequential orderIndex
+    sortedByTitleAsc.forEach((coll, i) => {
+      expect(mockPrisma.userCollection.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: coll.id },
+          data: { orderIndex: i + 1 },
+        }),
+      );
+    });
+  });
+ 
+  // ── TITLE_DESC ─────────────────────────────────────────────────────────────
+ 
+  test('should sort child collections by title descending (TITLE_DESC)', async () => {
+    const sortedByTitleDesc = [
+      childRESTUserCollectionList[4], // Child Collection 5
+      childRESTUserCollectionList[3], // Child Collection 4
+      childRESTUserCollectionList[2], // Child Collection 3
+      childRESTUserCollectionList[1], // Child Collection 2
+      childRESTUserCollectionList[0], // Child Collection 1
+    ];
+ 
+    mockPrisma.$transaction.mockImplementation(async (fn) => fn(mockPrisma));
+    mockPrisma.lockUserCollectionByParent.mockResolvedValue(undefined);
+    mockPrisma.userCollection.findMany.mockResolvedValueOnce(
+      toIdOnly(sortedByTitleDesc),
+    );
+    sortedByTitleDesc.forEach((_, i) =>
+      mockPrisma.userCollection.update.mockResolvedValueOnce({
+        ...sortedByTitleDesc[i],
+        orderIndex: i + 1,
+      }),
+    );
+ 
+    const result = await userCollectionService.sortUserCollections(
+      user.uid,
+      rootRESTUserCollectionList[0].id,
+      SortOptions.TITLE_DESC,
+    );
+ 
+    expect(result).toEqualRight(true);
+ 
+    expect(mockPrisma.userCollection.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orderBy: { title: 'desc' },
+      }),
+    );
+ 
+    sortedByTitleDesc.forEach((coll, i) => {
+      expect(mockPrisma.userCollection.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: coll.id },
+          data: { orderIndex: i + 1 },
+        }),
+      );
+    });
+  });
+ 
+  // ── Root collections (parentID = null) ────────────────────────────────────
+ 
+  test('should sort root collections (parentID null) by title ascending', async () => {
+    const rootSorted = [
+      rootRESTUserCollectionList[0], // Root Collection 1
+      rootRESTUserCollectionList[1], // Root Collection 2
+    ];
+ 
+    mockPrisma.$transaction.mockImplementation(async (fn) => fn(mockPrisma));
+    mockPrisma.lockUserCollectionByParent.mockResolvedValue(undefined);
+    mockPrisma.userCollection.findMany.mockResolvedValueOnce(
+      toIdOnly(rootSorted),
+    );
+    rootSorted.forEach((_, i) =>
+      mockPrisma.userCollection.update.mockResolvedValueOnce({
+        ...rootSorted[i],
+        orderIndex: i + 1,
+      }),
+    );
+ 
+    const result = await userCollectionService.sortUserCollections(
+      user.uid,
+      null, // root level
+      SortOptions.TITLE_ASC,
+    );
+ 
+    expect(result).toEqualRight(true);
+ 
+    // The where clause must target the correct user and null parent
+    expect(mockPrisma.userCollection.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { userUid: user.uid, parentID: null },
+      }),
+    );
+  });
+ 
+  // ── Empty collection list ─────────────────────────────────────────────────
+ 
+  test('should return right(true) with no updates when the parent has no children', async () => {
+    mockPrisma.$transaction.mockImplementation(async (fn) => fn(mockPrisma));
+    mockPrisma.lockUserCollectionByParent.mockResolvedValue(undefined);
+    mockPrisma.userCollection.findMany.mockResolvedValueOnce([]);
+ 
+    const result = await userCollectionService.sortUserCollections(
+      user.uid,
+      rootRESTUserCollectionList[0].id,
+      SortOptions.TITLE_ASC,
+    );
+ 
+    expect(result).toEqualRight(true);
+    expect(mockPrisma.userCollection.update).not.toHaveBeenCalled();
+  });
+ 
+  // ── Transaction failure ────────────────────────────────────────────────────
+ 
+  test('should return left(USER_COLL_REORDERING_FAILED) when the transaction throws', async () => {
+    mockPrisma.$transaction.mockRejectedValueOnce(new Error('DB error'));
+ 
+    const result = await userCollectionService.sortUserCollections(
+      user.uid,
+      rootRESTUserCollectionList[0].id,
+      SortOptions.TITLE_ASC,
+    );
+ 
+    expect(result).toEqualLeft(USER_COLL_REORDERING_FAILED);
+  });
+ 
+  // ── findMany failure inside transaction ───────────────────────────────────
+ 
+  test('should return left(USER_COLL_REORDERING_FAILED) when findMany throws inside the transaction', async () => {
+    mockPrisma.$transaction.mockImplementation(async (fn) => fn(mockPrisma));
+    mockPrisma.lockUserCollectionByParent.mockResolvedValue(undefined);
+    mockPrisma.userCollection.findMany.mockRejectedValueOnce(
+      new Error('Query error'),
+    );
+ 
+    const result = await userCollectionService.sortUserCollections(
+      user.uid,
+      rootRESTUserCollectionList[0].id,
+      SortOptions.TITLE_ASC,
+    );
+ 
+    expect(result).toEqualLeft(USER_COLL_REORDERING_FAILED);
+  });
+ 
+  // ── update failure inside transaction ─────────────────────────────────────
+ 
+  test('should return left(USER_COLL_REORDERING_FAILED) when an update call throws inside the transaction', async () => {
+    mockPrisma.$transaction.mockImplementation(async (fn) => fn(mockPrisma));
+    mockPrisma.lockUserCollectionByParent.mockResolvedValue(undefined);
+    mockPrisma.userCollection.findMany.mockResolvedValueOnce(
+      toIdOnly(childRESTUserCollectionList),
+    );
+    // First update succeeds, second fails (simulates a partial failure)
+    mockPrisma.userCollection.update
+      .mockResolvedValueOnce({
+        ...childRESTUserCollectionList[0],
+        orderIndex: 1,
+      })
+      .mockRejectedValueOnce(new Error('Update error'));
+ 
+    const result = await userCollectionService.sortUserCollections(
+      user.uid,
+      rootRESTUserCollectionList[0].id,
+      SortOptions.TITLE_ASC,
+    );
+ 
+    expect(result).toEqualLeft(USER_COLL_REORDERING_FAILED);
+  });
+ 
+  // ── orderBy fallback (unknown sort option) ────────────────────────────────
+ 
+  test('should fall back to orderIndex asc for an unrecognised sort option', async () => {
+    const unknownSort = 'UNKNOWN_SORT' as SortOptions;
+ 
+    mockPrisma.$transaction.mockImplementation(async (fn) => fn(mockPrisma));
+    mockPrisma.lockUserCollectionByParent.mockResolvedValue(undefined);
+    mockPrisma.userCollection.findMany.mockResolvedValueOnce(
+      toIdOnly(childRESTUserCollectionList),
+    );
+    childRESTUserCollectionList.forEach((_, i) =>
+      mockPrisma.userCollection.update.mockResolvedValueOnce({
+        ...childRESTUserCollectionList[i],
+        orderIndex: i + 1,
+      }),
+    );
+ 
+    const result = await userCollectionService.sortUserCollections(
+      user.uid,
+      rootRESTUserCollectionList[0].id,
+      unknownSort,
+    );
+ 
+    expect(result).toEqualRight(true);
+ 
+    expect(mockPrisma.userCollection.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orderBy: { orderIndex: 'asc' },
+      }),
+    );
+  });
+});
+ 
