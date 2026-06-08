@@ -275,6 +275,51 @@ describe('verifyMagicLinkTokens', () => {
       statusCode: HttpStatus.NOT_FOUND,
     });
   });
+
+
+test('Should successfully verify magic link token on expiration boundary', async () => {
+    jest.useFakeTimers(); 
+    
+    const boundaryTime = new Date();
+    mockPrisma.verificationToken.findUniqueOrThrow.mockResolvedValueOnce({
+      ...passwordlessData,
+      expiresOn: boundaryTime,
+    });
+    mockUser.findUserById.mockResolvedValue(O.some(user));
+    mockPrisma.account.findUnique.mockResolvedValueOnce(accountDetails);
+    mockJWT.sign.mockReturnValue(user.refreshToken);
+    mockUser.updateUserRefreshToken.mockResolvedValueOnce(E.right(user));
+    mockPrisma.verificationToken.delete.mockResolvedValueOnce(passwordlessData);
+    mockUser.updateUserLastLoggedOn.mockResolvedValue(E.right(true));
+
+    const result = await authService.verifyMagicLinkTokens(magicLinkVerify);
+    expect(result).toEqualRight({
+      access_token: user.refreshToken,
+      refresh_token: user.refreshToken,
+    });
+
+    jest.useRealTimers(); 
+  });
+
+  test('Should call updateUserLastLoggedOn as a side effect on successful verification', async () => {
+    mockPrisma.verificationToken.findUniqueOrThrow.mockResolvedValueOnce({
+      ...passwordlessData,
+      expiresOn: nowPlus30,
+    });
+    mockUser.findUserById.mockResolvedValue(O.some(user));
+    mockPrisma.account.findUnique.mockResolvedValueOnce(accountDetails);
+    mockJWT.sign.mockReturnValue(user.refreshToken);
+    mockUser.updateUserRefreshToken.mockResolvedValueOnce(E.right(user));
+    mockPrisma.verificationToken.delete.mockResolvedValueOnce(passwordlessData);
+    mockUser.updateUserLastLoggedOn.mockResolvedValue(E.right(true));
+
+    const result = await authService.verifyMagicLinkTokens(magicLinkVerify);
+    expect(result).toEqualRight({
+      access_token: user.refreshToken,
+      refresh_token: user.refreshToken,
+    });
+    expect(mockUser.updateUserLastLoggedOn).toHaveBeenCalledWith(user.uid);
+  });
 });
 
 describe('generateAuthTokens', () => {
