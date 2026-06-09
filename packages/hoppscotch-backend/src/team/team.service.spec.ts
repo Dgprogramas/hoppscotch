@@ -8,6 +8,7 @@ import {
   TEAM_NAME_INVALID,
   TEAM_ONLY_ONE_OWNER,
   TEAM_INVALID_ID_OR_USER,
+  TEAM_MEMBER_NOT_FOUND,
 } from '../errors';
 import { mockDeep, mockReset } from 'jest-mock-extended';
 import * as O from 'fp-ts/Option';
@@ -521,6 +522,39 @@ describe('updateTeamAccessRole', () => {
         role: newRole,
       },
     );
+  });
+
+  test('should return TEAM_MEMBER_NOT_FOUND when member does not exist in the team', async () => {
+    mockPrisma.teamMember.count.mockResolvedValue(1);
+    mockPrisma.teamMember.findUnique.mockResolvedValue(null);
+
+    const result = await teamService.updateTeamAccessRole(
+      dbTeamMember.teamID,
+      'invalidUserUid',
+      TeamAccessRole.EDITOR,
+    );
+
+    expect(result).toEqualLeft(TEAM_MEMBER_NOT_FOUND);
+  });
+
+  test('should successfully update role when ownerCount is 0', async () => {
+    const newRole = TeamAccessRole.EDITOR;
+    mockPrisma.teamMember.count.mockResolvedValue(0);
+    mockPrisma.teamMember.findUnique.mockResolvedValue({
+      ...dbTeamMember,
+      role: TeamAccessRole.OWNER,
+    });
+    mockPrisma.teamMember.update.mockResolvedValue({
+      ...dbTeamMember,
+      role: newRole,
+    });
+
+    const result = await teamService.updateTeamAccessRole(
+      dbTeamMember.teamID,
+      dbTeamMember.userUid,
+      newRole,
+    );
+    expect(result).toEqualRight({ ...teamMember, role: newRole });
   });
 });
 
@@ -1071,6 +1105,48 @@ describe('getCountOfMembersInTeam', () => {
 
       const result = await teamService.getTeamsCount();
       expect(result).toEqual(10);
+    });
+  });
+
+  describe('getTeamsByUserRole', () => {
+    test('should return a list of teams where the user has the specified role', async () => {
+      const userUid = 'userUid';
+      const role = TeamAccessRole.OWNER;
+      const mockTeams = [
+        { team: { id: 'team1', name: 'Team 1' } },
+        { team: { id: 'team2', name: 'Team 2' } },
+      ];
+
+      mockPrisma.teamMember.findMany.mockResolvedValue(mockTeams as any);
+
+      // @ts-ignore
+      const result = await teamService.getTeamsByUserRole(userUid, role);
+
+      expect(result).toEqual([
+        { id: 'team1', name: 'Team 1' },
+        { id: 'team2', name: 'Team 2' },
+      ]);
+      expect(mockPrisma.teamMember.findMany).toHaveBeenCalledWith({
+        where: {
+          userUid,
+          role,
+        },
+        select: {
+          team: true,
+        },
+      });
+    });
+
+    test('should return an empty list when no teams are found for the user role', async () => {
+      const userUid = 'userWithoutTeams';
+      const role = TeamAccessRole.VIEWER;
+
+      mockPrisma.teamMember.findMany.mockResolvedValue([]);
+
+      const result = await teamService.getTeamsByUserRole(userUid, role);
+
+      expect(result).toEqual([]);
+      expect(result).toHaveLength(0);
     });
   });
 });
