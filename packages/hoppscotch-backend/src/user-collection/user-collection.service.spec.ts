@@ -1056,6 +1056,39 @@ describe('renameUserCollection', () => {
       },
     );
   });
+
+  // titulo apenas com espacos em branco
+  test('should throw USER_COLL_SHORT_TITLE when title contains only whitespace', async () => {
+    const result = await userCollectionService.renameUserCollection(
+      '   ',
+      rootRESTUserCollection.id,
+      user.uid,
+    );
+    expect(result).toEqualLeft(USER_COLL_SHORT_TITLE);
+  });
+
+  // titulo com exatamente 1 caractere
+  test('should successfully rename with a single character title (minimum boundary value)', async () => {
+    // isOwnerCheck
+    mockPrisma.userCollection.findFirstOrThrow.mockResolvedValueOnce(
+      rootRESTUserCollection,
+    );
+
+    mockPrisma.userCollection.update.mockResolvedValueOnce({
+      ...rootRESTUserCollection,
+      title: 'A',
+    });
+
+    const result = await userCollectionService.renameUserCollection(
+      'A',
+      rootRESTUserCollection.id,
+      user.uid,
+    );
+    expect(result).toEqualRight({
+      ...rootRESTUserCollectionCasted,
+      title: 'A',
+    });
+  });
 });
 
 describe('deleteUserCollection', () => {
