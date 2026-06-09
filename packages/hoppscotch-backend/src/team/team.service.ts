@@ -149,6 +149,23 @@ export class TeamService implements UserDataHandler, OnModuleInit {
     }
   }
 
+  async getTeamsByUserRole(
+    userUid: string,
+    role: TeamAccessRole,
+  ): Promise<Team[]> {
+    const teamMembers = await this.prisma.teamMember.findMany({
+      where: {
+        userUid,
+        role,
+      },
+      select: {
+        team: true,
+      },
+    });
+
+    return teamMembers.map((tm) => tm.team);
+  }
+
   async updateTeamAccessRole(
     teamID: string,
     userUid: string,

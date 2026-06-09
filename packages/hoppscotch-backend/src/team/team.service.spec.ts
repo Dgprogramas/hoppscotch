@@ -1107,4 +1107,46 @@ describe('getCountOfMembersInTeam', () => {
       expect(result).toEqual(10);
     });
   });
+
+  describe('getTeamsByUserRole', () => {
+    test('should return a list of teams where the user has the specified role', async () => {
+      const userUid = 'userUid';
+      const role = TeamAccessRole.OWNER;
+      const mockTeams = [
+        { team: { id: 'team1', name: 'Team 1' } },
+        { team: { id: 'team2', name: 'Team 2' } },
+      ];
+
+      mockPrisma.teamMember.findMany.mockResolvedValue(mockTeams as any);
+
+      // @ts-ignore
+      const result = await teamService.getTeamsByUserRole(userUid, role);
+
+      expect(result).toEqual([
+        { id: 'team1', name: 'Team 1' },
+        { id: 'team2', name: 'Team 2' },
+      ]);
+      expect(mockPrisma.teamMember.findMany).toHaveBeenCalledWith({
+        where: {
+          userUid,
+          role,
+        },
+        select: {
+          team: true,
+        },
+      });
+    });
+
+    test('should return an empty list when no teams are found for the user role', async () => {
+      const userUid = 'userWithoutTeams';
+      const role = TeamAccessRole.VIEWER;
+
+      mockPrisma.teamMember.findMany.mockResolvedValue([]);
+
+      const result = await teamService.getTeamsByUserRole(userUid, role);
+
+      expect(result).toEqual([]);
+      expect(result).toHaveLength(0);
+    });
+  });
 });
