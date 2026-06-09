@@ -1480,6 +1480,46 @@ describe('moveUserCollection', () => {
       },
     );
   });
+  test('should return USER_COLL_NOT_FOUND when dest collection does not belong to user', async () => {
+      const collection = { ...rootRESTUserCollection, userUid: user.uid };
+
+      mockPrisma.$transaction.mockImplementation(async (fn) => fn(mockPrisma));
+      userCollectionService.getUserCollection = jest.fn()
+        .mockResolvedValueOnce(E.right(collection))
+        .mockResolvedValueOnce(E.left(USER_COLL_NOT_FOUND));
+
+      const result = await userCollectionService.moveUserCollection(
+        collection.id,
+        'target_id',
+        user.uid,
+      );
+      expect(result).toEqualLeft(USER_COLL_NOT_FOUND);
+    });
+
+    test('should move collection to root level successfully', async () => {
+      const collection = { ...rootRESTUserCollection, parentID: 'some_parent' };
+
+      mockPrisma.$transaction.mockImplementation(async (fn) => fn(mockPrisma));
+      mockPrisma.lockUserCollectionByParent.mockResolvedValue(undefined);
+      mockPrisma.userCollection.findFirst.mockResolvedValue(null);
+      mockPrisma.userCollection.update.mockResolvedValue({ ...collection, parentID: null });
+      mockPrisma.userCollection.updateMany.mockResolvedValue({ count: 0 });
+      userCollectionService.getUserCollection = jest.fn().mockResolvedValue(E.right(collection));
+
+      const result = await userCollectionService.moveUserCollection(collection.id, null, user.uid);
+      expect(result).toEqualRight(expect.objectContaining({ parentID: null }));
+    });
+
+    test('should return USER_COLL_REORDERING_FAILED when transaction fails', async () => {
+      mockPrisma.$transaction.mockRejectedValueOnce(new Error('Prisma error'));
+
+      const result = await userCollectionService.moveUserCollection(
+        rootRESTUserCollection.id,
+        'target_id',
+        user.uid,
+      );
+      expect(result).toEqualLeft(USER_COLL_REORDERING_FAILED);
+    });
 });
 
 describe('updateUserCollectionOrder', () => {
